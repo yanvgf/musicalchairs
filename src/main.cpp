@@ -32,31 +32,38 @@ public:
             }            
         }
 
+    // Inicia uma nova rodada, removendo uma cadeira e ressincronizando o semáforo
     void iniciar_rodada() {
-        // Inicia uma nova rodada, removendo uma cadeira e ressincronizando o semáforo
+        
+        std::lock_guard<std::mutex> lock(music_mutex);
         
         // Não remove cadeira se for a primeira rodada (número de jogadores ativos == num_jogadores)
         if (jogadores_ativos.size() < static_cast<std::vector<int>::size_type>(num_jogadores)) {
+            
             --cadeiras;
-        }
-        std::lock_guard<std::mutex> lock(music_mutex);
-        musica_parada.store(false);
+        
+            // Ao dar release no semáforo, permite-se que os jogadores tentem
+            // ocupar as cadeiras novamente. Na prática, isso só reseta o semáforo,
+            // pois nenhuma thread fica bloqueada nele (estou usando try_acquire() 
+            // ao invés de acquire()).
+            cadeira_sem.release(cadeiras);
 
-        if (jogadores_ativos.size() < static_cast<std::vector<int>::size_type>(num_jogadores)) {        
-            std::cout << "Próxima rodada com " << num_jogadores << " jogadores e " 
+            // A música precisa parar DEPOIS de liberar o semáforo,
+            // pois é a música que faz os jogadores esperarem na variável de condição
+            musica_parada.store(false);
+
+            std::cout << "Próxima rodada com " << jogadores_ativos.size() << " jogadores e " 
                 << cadeiras << " cadeiras.\n";
             std::cout << "A música está tocando... 🎵\n\n";
-        } else {
-            std::cout << "Primeira rodada com " << num_jogadores << " jogadores e " 
+        } 
+        // Na primeira rodada, não é necessário remover cadeira
+        // e o semáforo já está na quantidade correta (n-1)
+        else {
+            musica_parada.store(false);
+            std::cout << "Primeira rodada com " << jogadores_ativos.size() << " jogadores e " 
                 << cadeiras << " cadeiras.\n";
             std::cout << "A música está tocando... 🎵\n\n";
         }
-
-        // Ao dar release no semáforo, permite-se que os jogadores tentem
-        // ocupar as cadeiras novamente. Na prática, isso só reseta o semáforo,
-        // pois nenhuma thread fica bloqueada nele (estou usando try_acquire() 
-        // ao invés de acquire()).
-        cadeira_sem.release(cadeiras);
     }
 
     void parar_musica() {
@@ -107,23 +114,9 @@ public:
     Jogador(int id, JogoDasCadeiras& jogo)
         : id(id), jogo(jogo), ativo(true) {}
 
+    // Tenta ocupar uma cadeira utilizando o semáforo contador quando a música para 
+    // (aguarda pela variável de condição)
     void tentar_ocupar_cadeira() {
-        // Tenta ocupar uma cadeira utilizando o semáforo contador quando a música para (aguarda pela variável de condição)
-        //
-        // TODO: corrigir prints
-        if (cadeira_sem.try_acquire()) {
-            std::cout << "Jogador P" << id << " conseguiu uma cadeira!\n";
-        } else {
-            // Se não conseguiu, o jogador é eliminado
-            ativo = false;
-            jogo.eliminar_jogador(id);
-        }
-        return;
-    }
-
-    void joga() {
-        // Aguarda a música parar usando a variavel de condicao
-        //
         // Pega o mutex
         std::unique_lock<std::mutex> lock(music_mutex);
         // 
@@ -131,8 +124,30 @@ public:
         // até que a música pare. Quando a música parar, a thread do jogador
         // vai ser notificada e o mutex será adquirido novamente.
         music_cv.wait(lock, [] { return musica_parada.load(); });
-        
-        tentar_ocupar_cadeira();
+
+        if (cadeira_sem.try_acquire()) {
+            std::cout << "Jogador P" << id << " conseguiu uma cadeira!\n";
+        } else {
+            // Se não conseguiu, o jogador é eliminado
+            ativo = false;
+            jogo.eliminar_jogador(id);
+        }
+        printf("id: %d, ativo: %d\n", id, ativo);
+
+        return;
+    }
+
+    // Aguarda a música parar usando a variavel de condicao
+    void joga() {
+        while (ativo) {    
+
+            tentar_ocupar_cadeira();
+
+            // Espera a próxima rodada antes de continuar
+            while (musica_parada.load()) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        }
     }
 
     bool esta_ativo() {
@@ -157,8 +172,9 @@ public:
     Coordenador(JogoDasCadeiras& jogo)
         : jogo(jogo) {}
 
+    // Começa o jogo, dorme por um período aleatório e
+    // para a música, sinalizando os jogadores 
     void iniciar_jogo() {
-        // Começa o jogo, dorme por um período aleatório, e então para a música, sinalizando os jogadores 
 
         // Gera novas rodadas enquanto o número de jogadores ativos for maior que 1
         while (jogo.num_jogadores_ativos() > 1) {
@@ -168,11 +184,12 @@ public:
             std::mt19937 gen(rd()); // Motor Mersenne Twister semeado com rd()
             std::uniform_int_distribution<> distrib(1000, 5000); // Distribuição uniforme entre 1000 e 5000 ms
             int tempo_espera_ms = distrib(gen); // Gera o tempo de espera
-            
+
+            jogo.iniciar_rodada();
+
             // Dorme por [tempo_espera_ms] ms antes de parar a música
             std::this_thread::sleep_for(std::chrono::milliseconds(tempo_espera_ms));
 
-            jogo.iniciar_rodada();
             jogo.parar_musica();
         }
     }
