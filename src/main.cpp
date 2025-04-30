@@ -26,7 +26,11 @@ std::atomic<bool> jogo_ativo{true};
 class JogoDasCadeiras {
 public:
     JogoDasCadeiras(int num_jogadores)
-        : num_jogadores(num_jogadores), cadeiras(num_jogadores - 1) {}
+        : num_jogadores(num_jogadores), cadeiras(num_jogadores - 1) {
+            for (int i = 1; i <= num_jogadores; ++i) {
+                jogadores_ativos.push_back(i);
+            }            
+        }
 
     void iniciar_rodada() {
         // Inicia uma nova rodada, removendo uma cadeira e ressincronizando o semáforo
@@ -170,8 +174,6 @@ public:
 
             jogo.iniciar_rodada();
             jogo.parar_musica();
-
-            std::this_thread::sleep_for(std::chrono::milliseconds(2000)); // Espera 2 segundos antes de parar a música
         }
     }
 
