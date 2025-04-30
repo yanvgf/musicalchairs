@@ -32,13 +32,13 @@ public:
         // Inicia uma nova rodada, removendo uma cadeira e ressincronizando o semáforo
         
         // Não remove cadeira se for a primeira rodada (número de jogadores ativos == num_jogadores)
-        if (jogadores_ativos.size() < num_jogadores) {
+        if (jogadores_ativos.size() < static_cast<std::vector<int>::size_type>(num_jogadores)) {
             --cadeiras;
         }
         std::lock_guard<std::mutex> lock(music_mutex);
         musica_parada.store(false);
 
-        if (jogadores_ativos.size() < num_jogadores) {        
+        if (jogadores_ativos.size() < static_cast<std::vector<int>::size_type>(num_jogadores)) {        
             std::cout << "Próxima rodada com " << num_jogadores << " jogadores e " 
                 << cadeiras << " cadeiras.\n";
             std::cout << "A música está tocando... 🎵\n\n";
